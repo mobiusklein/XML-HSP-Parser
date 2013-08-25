@@ -19,6 +19,7 @@ jQuery(function(){
    queryMode.start = 0
    queryMode.end = 5
   }
+  console.log(queryMode);
   console.log(file_input);
   var parser = new XMLHSPParser(file_input.name, queryMode);
   console.log(parser);
@@ -31,11 +32,25 @@ jQuery(function(){
  });
 })
 
+var IterationData = function(handle, index, fileName, nHits){
+ this.handle = handle;
+ this.index = index;
+ this.fileName = fileName;
+ this.queryName = this.handle.find('Iteration_query-def').text();
+ this.hitDataSet = this.handle.find('Hit').slice(0, nHits);
+ var queryName = this.queryName
+ this.hitDataSet = this.hitDataSet.map(function(ind_hit, value){
+    
+    return new HitData(jQuery(this), ind_hit, fileName, queryName);
+ });
+}
+
 /*
  HitData represents a single Blast Hit, with one or more Hsps. 
 */
-var HitData = function(handle, index, fileName){
+var HitData = function(handle, index, fileName, queryName){
  this.handle = handle;
+ this.queryName = queryName;
  this.name = handle.find('Hit_def').text()
  this.maxHit = 0;
  this.minHit = Infinity;
@@ -50,7 +65,6 @@ var HitData = function(handle, index, fileName){
   return hsp;
  });
 }
-
 /*
  HspData represents a single Hsp 
 */
@@ -101,12 +115,24 @@ var XMLHSPParser = function(name, queryMode){
  
  this.parseXML = function(evt){
   this.$xmlHandle = jQuery(jQuery.parseXML(evt.target.result));
-  this.hitDataSet = this.$xmlHandle.find('Hit').slice(queryMode.start,queryMode.stop);
+  this.hitDataSet = this.$xmlHandle.find('Hit').slice(queryMode.start,queryMode.end);
+  this.iterationDataSet = this.$xmlHandle.find('Iteration');
   var file = this.fileName;
   console.log(file);
-  this.hitDataSet = this.hitDataSet.map(function(index, value){
-    return new HitData(jQuery(this), index, file);
-   });
+  this.iterationDataSet = this.iterationDataSet.map(function(index, value){
+   return new IterationData(jQuery(this), index, file, queryMode.end);
+  });
+  // this.hitDataSet = this.hitDataSet.map(function(index, value){
+    // return new HitData(jQuery(this), index, file);
+   // });
+  
+  //Not a jQuery augmented array, so must use wrapper method.
+  this.hitDataSet = jQuery(this.iterationDataSet).map(function(index, value){
+   //Only returns the first hit, but without the subscript, it returns a jQuery object
+   //that seems to cause problems down the line.
+   return value.hitDataSet.toArray();
+  })
+  //this.hitDataSet = [].concat.apply([],this.hitDataSet);
   postParse(this.hitDataSet);
   console.log("Parse Complete");
  };

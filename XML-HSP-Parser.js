@@ -1,14 +1,32 @@
 var parsers = []
 
-var postParse = function(){throw("Unconfigured postParse Error")};
+
+/*
+Client Library Cascade Function.
+Expected to be overwritten with a behavior that receives an array of HitData objects. 
+To be called once parsing is finished asynchronously. 
+*/
+var postParse = function(hitsData){throw("Unconfigured postParse Error")};
+
+/*
+Set up target elements. 
+
+Targets: 
+ #read-file-btn: A button to trigger parsing
+ #file_select_in: An inpute['file'] element which receives the user's XML file
+ #query_number: (optional) An input['number'] that specifies the particular nth query (zero-indexed) 
+ to graph, otherwise take the first five queries.
+*/
 
 jQuery(function(){
   jQuery('#read-file-btn').click(function(){
   var file_input = jQuery('#file_select_in')[0].files[0];
   var queryMode = {};
+  //Configure queryMode based on #query_number's presence
   if(jQuery('#query_number').length !== 0){
    var q_num = parseInt(jQuery('#query_number')[0].value);
    if (isNaN(q_num)){
+    //If I can't find a number, default to normal absence behavior
     queryMode.start = 0;
     queryMode.end = 5
    } else { 
@@ -21,37 +39,54 @@ jQuery(function(){
   }
   console.log(queryMode);
   console.log(file_input);
+  //Instantiate a new parser object 
   var parser = new XMLHSPParser(file_input.name, queryMode);
   console.log(parser);
+  //Add this parser to the parsers list for later use
   parsers.push(parser);
   var reader = new FileReader();
+  //Create a closure around the parser's parseXML function, so 
+  //that the this reference points to the parser and not the FileReader
   var parseXML = function(evt){ parser.parseXML(evt); }
+  //Set up callbacks for success and errors
   reader.onerror = function(e){ alert("An error occurred", e) };
-  reader.readAsText(file_input, 'UTF-8');
   reader.onload = parseXML;
+  
+  //Do async file I/O
+  reader.readAsText(file_input, 'UTF-8');
  });
 })
 
+/*
+IterationData represents a single Blast iteration, or an individual query. 
+Contains a reference to the XML handle it was derived from and all of the
+HitData associated with it. 
+*/
 var IterationData = function(handle, index, fileName, nHits){
  this.handle = handle;
  this.index = index;
  this.fileName = fileName;
  this.queryName = this.handle.find('Iteration_query-def').text();
+ //Collect the first nHits Hit entities from XML and map them to 
+ //HitData objects. 
  this.hitDataSet = this.handle.find('Hit').slice(0, nHits);
  var queryName = this.queryName
  this.hitDataSet = this.hitDataSet.map(function(ind_hit, value){
-    
     return new HitData(jQuery(this), ind_hit, fileName, queryName);
  });
 }
 
 /*
  HitData represents a single Blast Hit, with one or more Hsps. 
+ Contains a reference to the XML handle it was derived from and all of 
+ the HspData associated with it.
 */
 var HitData = function(handle, index, fileName, queryName){
  this.handle = handle;
  this.queryName = queryName;
  this.name = handle.find('Hit_def').text()
+ //Metrics for tracing the bounds of the Hit and Query. Initialized
+ //to opposite minima to insure overwrite in HspData constructor.
  this.maxHit = 0;
  this.minHit = Infinity;
  this.maxQuery = 0;
@@ -60,13 +95,16 @@ var HitData = function(handle, index, fileName, queryName){
  this.index = index;
  this.fileName = fileName;
  var self = this;
+ //Collect all Hsp entities contained within the XML representation and 
+ //map them to HspData objects.
  this.hspsData = this.hspsHandle.map(function(value, index){
   var hsp = new HspData(jQuery(this), self);
   return hsp;
  });
 }
 /*
- HspData represents a single Hsp 
+ HspData represents a single Hsp alignment. 
+ Contains a reference to the XML that it was derived from. 
 */
 var HspData = function(handle, hit){
  this.handle     = handle;
@@ -92,6 +130,7 @@ var HspData = function(handle, hit){
   this.lowerQuery = this.queryFrom;
  }
  this.hit        = hit
+ //Update HitData metrics as needed.
  this.hit.maxHit = this.hit.maxHit < this.upperHit ? this.upperHit : this.hit.maxHit;
  this.hit.maxQuery = this.hit.maxQuery < this.upperQuery ? this.upperQuery : this.hit.maxQuery;
  this.hit.minHit = this.hit.minHit > this.lowerHit ? this.lowerHit : this.hit.minHit;
@@ -113,6 +152,7 @@ var XMLHSPParser = function(name, queryMode){
  
  this.queryMode = queryMode
  
+ //A callback to parse the XML file. To be invoked by FileReader instance's onload event.
  this.parseXML = function(evt){
   this.$xmlHandle = jQuery(jQuery.parseXML(evt.target.result));
   this.hitDataSet = this.$xmlHandle.find('Hit').slice(queryMode.start,queryMode.end);
@@ -122,17 +162,15 @@ var XMLHSPParser = function(name, queryMode){
   this.iterationDataSet = this.iterationDataSet.map(function(index, value){
    return new IterationData(jQuery(this), index, file, queryMode.end);
   });
-  // this.hitDataSet = this.hitDataSet.map(function(index, value){
-    // return new HitData(jQuery(this), index, file);
-   // });
   
+  //Extract all hits from each IterationData to be made available at the parser level. 
   //Not a jQuery augmented array, so must use wrapper method.
   this.hitDataSet = jQuery(this.iterationDataSet).map(function(index, value){
    //Only returns the first hit, but without the subscript, it returns a jQuery object
    //that seems to cause problems down the line.
    return value.hitDataSet.toArray();
   })
-  //this.hitDataSet = [].concat.apply([],this.hitDataSet);
+  //Call the client library cascade function with the collection of hits. 
   postParse(this.hitDataSet);
   console.log("Parse Complete");
  };
